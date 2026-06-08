@@ -285,6 +285,33 @@ func (c *ClientDispatcherTestSuite) TestClientSendRequest() {
 
 }
 
+func (c *ClientDispatcherTestSuite) TestClientSendRequestAfterStop() {
+	t := c.T()
+	// Setup
+	c.dispatcher.Start()
+	require.True(t, c.dispatcher.IsRunning())
+	c.dispatcher.Stop()
+	// Create mock request
+	req := newMockRequest("somevalue")
+	call, err := c.endpoint.CreateCall(req)
+	require.NoError(t, err)
+	data, err := call.MarshalJSON()
+	require.NoError(t, err)
+	bundle := ocppj.RequestBundle{Call: call, Data: data}
+	// SendRequest after Stop must fail fast rather than panic on the closed
+	// notification channel or block forever once the message pump has exited.
+	done := make(chan error, 1)
+	go func() {
+		done <- c.dispatcher.SendRequest(bundle)
+	}()
+	select {
+	case err := <-done:
+		assert.Error(t, err)
+	case <-time.After(time.Second):
+		require.Fail(t, "SendRequest blocked after the dispatcher was stopped")
+	}
+}
+
 func (c *ClientDispatcherTestSuite) TestClientRequestCanceled() {
 	t := c.T()
 	// Setup

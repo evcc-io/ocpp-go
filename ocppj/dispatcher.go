@@ -89,6 +89,7 @@ type DefaultClientDispatcher struct {
 	requestQueue        RequestQueue
 	requestChannel      chan bool
 	readyForDispatch    chan bool
+	stopped             chan struct{}
 	pendingRequestState ClientState
 	network             ws.Client
 	mutex               sync.RWMutex
@@ -126,6 +127,7 @@ func (d *DefaultClientDispatcher) Start() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	d.requestChannel = make(chan bool, 1)
+	d.stopped = make(chan struct{})
 	d.timer = time.NewTimer(defaultTimeoutTick) // Default to 24 hours tick
 	go d.messagePump()
 }
@@ -145,6 +147,9 @@ func (d *DefaultClientDispatcher) IsPaused() bool {
 func (d *DefaultClientDispatcher) Stop() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
+	// signal stop before closing the request channel, so a concurrent
+	// SendRequest bails out instead of sending on the closed channel
+	close(d.stopped)
 	close(d.requestChannel)
 	// TODO: clear pending requests?
 }
@@ -158,15 +163,36 @@ func (d *DefaultClientDispatcher) SetPendingRequestState(state ClientState) {
 }
 
 func (d *DefaultClientDispatcher) SendRequest(req RequestBundle) error {
+	// Hold the read lock for the whole call: it is mutually exclusive with
+	// Stop's write lock, so requestChannel cannot be closed underneath us.
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
 	if d.network == nil {
 		return fmt.Errorf("cannot SendRequest, no network client was set")
+	}
+	if d.requestChannel == nil {
+		return fmt.Errorf("cannot SendRequest, dispatcher is not running")
+	}
+	// Bail out if the dispatcher is stopping, to avoid sending on the closed
+	// requestChannel once Stop has run.
+	select {
+	case <-d.stopped:
+		return fmt.Errorf("cannot SendRequest, dispatcher is stopped")
+	default:
 	}
 	if err := d.requestQueue.Push(req); err != nil {
 		return err
 	}
-	d.mutex.RLock()
-	d.requestChannel <- true
-	d.mutex.RUnlock()
+	// requestChannel is only a wake-up notification for the message pump; the
+	// request queued above is the source of truth. A non-blocking send is
+	// therefore sufficient: if a notification is already pending the pump will
+	// re-check the queue and pick up this request anyway. Blocking here used to
+	// deadlock teardown, because callers hold the callback-queue mutex while the
+	// pump had already stopped draining the channel.
+	select {
+	case d.requestChannel <- true:
+	default:
+	}
 	return nil
 }
 
