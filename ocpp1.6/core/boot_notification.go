@@ -34,7 +34,7 @@ type BootNotificationRequest struct {
 	ChargeBoxSerialNumber   string `json:"chargeBoxSerialNumber,omitempty" validate:"max=25"`
 	ChargePointModel        string `json:"chargePointModel" validate:"required,max=20"`
 	ChargePointSerialNumber string `json:"chargePointSerialNumber,omitempty" validate:"max=25"`
-	ChargePointVendor       string `json:"chargePointVendor" validate:"required,max=20"`
+	ChargePointVendor       string `json:"chargePointVendor" validate:"max=20"`
 	FirmwareVersion         string `json:"firmwareVersion,omitempty" validate:"max=50"`
 	Iccid                   string `json:"iccid,omitempty" validate:"max=20"`
 	Imsi                    string `json:"imsi,omitempty" validate:"max=20"`
