@@ -255,8 +255,7 @@ func (s *server) Errors() <-chan error {
 	return s.errC
 }
 
-// Addr returns the address the server is bound to, or nil while it is not bound.
-// Start writes the address from its own goroutine, hence the lock.
+// Addr is guarded because Start writes the address from its own goroutine.
 func (s *server) Addr() *net.TCPAddr {
 	s.addrMutex.RLock()
 	defer s.addrMutex.RUnlock()
