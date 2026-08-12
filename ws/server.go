@@ -144,6 +144,7 @@ type server struct {
 	upgrader              websocket.Upgrader
 	errC                  chan error
 	connMutex             sync.RWMutex
+	addrMutex             sync.RWMutex
 	addr                  *net.TCPAddr
 	httpHandler           *mux.Router
 }
@@ -254,7 +255,10 @@ func (s *server) Errors() <-chan error {
 	return s.errC
 }
 
+// Addr is guarded because Start writes the address from its own goroutine.
 func (s *server) Addr() *net.TCPAddr {
+	s.addrMutex.RLock()
+	defer s.addrMutex.RUnlock()
 	return s.addr
 }
 
@@ -285,7 +289,9 @@ func (s *server) Start(port int, listenPath string) {
 		return
 	}
 
+	s.addrMutex.Lock()
 	s.addr = ln.Addr().(*net.TCPAddr)
+	s.addrMutex.Unlock()
 
 	defer ln.Close()
 
